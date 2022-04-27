@@ -1,0 +1,8 @@
+Host bastion-instance
+   HostName 54.224.18.46
+   User ubuntu
+
+Host private-instance
+   HostName 10.0.1.80
+   User ubuntu
+   ProxyCommand ssh -q -W %h:%p bastion-instance

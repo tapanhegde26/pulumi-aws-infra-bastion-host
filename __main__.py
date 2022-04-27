@@ -13,42 +13,45 @@ import pulumi
 import pulumi_aws as aws
 from pulumi import export
 
-virtualprivatecloud = aws.ec2.Vpc("ec2-vpc", cidr_block="10.0.0.0/16")
+config = pulumi.Config()
+data = config.require_object("data")
 
-igw = aws.ec2.InternetGateway("igw",
+virtualprivatecloud = aws.ec2.Vpc(data.get("vpc_name"), cidr_block=data.get("vpc_cidr"))
+
+igw = aws.ec2.InternetGateway(data.get("igw_name"),
     vpc_id=virtualprivatecloud.id,
     tags={
-        "Name": "igw",
+        "Name": data.get("igw_name"),
     })
 
-privatesubnet = aws.ec2.Subnet("private-subnet",
+privatesubnet = aws.ec2.Subnet(data.get("prv_subnet_name"),
     vpc_id=virtualprivatecloud.id,
-    cidr_block="10.0.1.0/24",
+    cidr_block=data.get("prv_cidr"),
     map_public_ip_on_launch=False,
     tags={
-        "Name": "private-subnet",
+        "Name": data.get("prv_subnet_name"),
     })
 
-publicsubnet = aws.ec2.Subnet("public-subnet",
+publicsubnet = aws.ec2.Subnet(data.get("pub_subnet_name"),
     vpc_id=virtualprivatecloud.id,
-    cidr_block="10.0.0.0/24",
+    cidr_block=data.get("pub_cidr"),
     map_public_ip_on_launch=True,
     tags={
-        "Name": "public-subnet",
+        "Name": data.get("pub_subnet_name"),
     })
 
-eip = aws.ec2.Eip("lb",
+eip = aws.ec2.Eip(data.get("eip_name"),
     vpc=True)
 
-natgateway = aws.ec2.NatGateway("ngw",
+natgateway = aws.ec2.NatGateway(data.get("natgw_name"),
     allocation_id=eip.allocation_id,
     subnet_id=publicsubnet.id,
     tags={
-        "Name": "gw NAT",
+        "Name": data.get("natgw_name"),
     },
     opts=pulumi.ResourceOptions(depends_on=[igw]))
 
-pubroutetable = aws.ec2.RouteTable("pubroutetable",
+pubroutetable = aws.ec2.RouteTable(data.get("pubrttable_name"),
     vpc_id=virtualprivatecloud.id,
     routes=[
         aws.ec2.RouteTableRouteArgs(
@@ -57,10 +60,10 @@ pubroutetable = aws.ec2.RouteTable("pubroutetable",
         )
     ],
     tags={
-        "Name": "pub-routetable",
+        "Name": data.get("pubrttable_name"),
     })
 
-prvroutetable = aws.ec2.RouteTable("prvroutetable",
+prvroutetable = aws.ec2.RouteTable(data.get("prvrttable_name"),
     vpc_id=virtualprivatecloud.id,
     routes=[
         aws.ec2.RouteTableRouteArgs(
@@ -69,23 +72,23 @@ prvroutetable = aws.ec2.RouteTable("prvroutetable",
         )
     ],
     tags={
-        "Name": "prv-routetable",
+        "Name": data.get("prvrttable_name"),
     })
 
 pub_route_association = aws.ec2.RouteTableAssociation(
-        "ec2-pub-rta",
+        data.get("pubrtasst_name"),
         route_table_id=pubroutetable.id,
         subnet_id=publicsubnet.id
 )
 
 prv_route_association = aws.ec2.RouteTableAssociation(
-        "ec2-prv-rta",
+        data.get("prvrtasst_name"),
         route_table_id=prvroutetable.id,
         subnet_id=privatesubnet.id
 )
 
 sg = aws.ec2.SecurityGroup(
-        "ec2-http-sg",
+        data.get("sec_grp_name"),
         description="Allow HTTP traffic to EC2 instance",
         ingress=[{
                 "protocol": "tcp",
@@ -118,7 +121,8 @@ sg = aws.ec2.SecurityGroup(
     vpc_id=virtualprivatecloud.id
 )
 
-keypair = aws.ec2.KeyPair("keypair", public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC9u37J5tfzmeA8INBCcFSPKnUN8GIjYFdPOOCn8AjUC5iTJX/7TWd3pZ42Z++RCIlvBvKkH7LL1pYvi0HdtsbRNtCC60sbkgXRvuXWVAX7laFwERjSrFKpPYr9KxPmKt566lD5mQXrz25Lm0Fz9tGT2F3f8NDa5XY3M525o7ws4WVpg4nGkqnUnNrxBhKSLHI+LoMzsV9WxqFFlsz2EEt8mOekFGR2JUBHrfrPVm1DRtaVl5w6GEgmvXf4i+rN+Q+7y1I7g/7uJTAiR3To1CjFothpk56PINMWQafO31Mi1+ISDUZK4jBi0VrwWcxUE16eXP2WFAugqRElbuFqjoFDYollpx6Q2GpRyM+gIYMNPsNqM/7pGVvXOe/pzJqqFo68W5ASJF3EhwFk10t6cAnZfkL/+a8BR+8QzusMjqoAxip8YtOVglWl1D1ArePComLsxmEmvfnGMgisLqZ62UpwR/bel69uph4TxDCthyxllG0i4RST0MrWv0kAT04yJJE= c5281159@C02Z34YFLVDQ")
+keypair = aws.ec2.KeyPair("keypair", public_key=data.get("public_key"))
+
 ami = aws.ec2.get_ami(
         most_recent="true",
         owners=["099720109477"],
@@ -132,8 +136,8 @@ nohup python -m SimpleHTTPServer 80 &
 """
 
 bastion_ec2_instance = aws.ec2.Instance(
-        "ec2-bastion",
-        instance_type="t2.micro",
+        data.get("ec2_bastion_name"),
+        instance_type=data.get("ec2_bastion_type"),
         vpc_security_group_ids=[sg.id],
         ami=ami.id,
         key_name=keypair.key_name,
@@ -144,8 +148,8 @@ bastion_ec2_instance = aws.ec2.Instance(
 
 
 private_ec2_instance = aws.ec2.Instance(
-        "ec2-private",
-        instance_type="t2.micro",
+        data.get("ec2_private_name"),
+        instance_type=data.get("ec2_private_type"),
         vpc_security_group_ids=[sg.id],
         ami=ami.id,
         key_name=keypair.key_name,
